@@ -1,0 +1,466 @@
+heat_template_version: 2013-05-23
+
+description: |
+  Deploys a salt-master, and a number of salt-minions.
+  One minion will be a hadoop master node.
+  Rest of the minions will be hadoop data nodes.
+  Floating ip will be assigned to the salt-master.
+
+parameters:
+
+  keyname:
+    type: string
+    label: Salt-Master Keyname.
+    description: The name of the key that should be used to ssh into the Salt-Master.
+
+  image:
+    type: string
+    label: Image Name
+    description: Name of the existing image to use for every vm spun up by this stack. The image should have heat-config and heat-config-script baked in.
+
+  floating-network-id:
+    type: string
+    label: External Network UUID
+    description: UUID of the external network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
+
+  datanodes-count:
+    type: number
+    default: 3
+    label: Number of data nodes  in the hadoop cluster.
+    description: The number of data nodes in the hadoop cluster.
+
+  flavor:
+    type: string
+    label: Flavor
+    description: Flavor of all vms. This may be changed in the future to allow different flavors for the different vms in this stack.
+    default: m1.medium
+
+resources:
+
+  # Random string to aid in naming things.
+  stack-string:
+    type: OS::Heat::RandomString
+    properties:
+      length: 6
+      sequence: lettersdigits
+
+  # Will be used to generate a random password
+  # 32 characters long consisting of alpha numeric characters
+  secret:
+    type: OS::Heat::RandomString
+    properties:
+      length: 32
+      sequence: lettersdigits
+
+  # Keypair for communicating between nodes within the stack.
+  # Will allow minions to ssh into the master and vice versa.
+  coms:
+    type: OS::Nova::KeyPair
+    properties:
+      save_private_key: true 
+      name:
+        str_replace:
+          template: hadoop-$stackstr-coms
+          params:
+            $stackstr:
+              get_attr:
+                - stack-string
+                - value 
+
+  # Private network for this stack
+  net:
+    type: OS::Neutron::Net
+
+  # Private subnet for this stack
+  subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id:
+        get_resource: net
+      cidr: 10.10.10.0/24
+      dns_nameservers:
+        - 8.8.8.8
+        - 4.2.2.2
+
+  # Routes the private network to the external network.
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: 
+          get_param: floating-network-id
+
+  # Router interface
+  interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id:
+        get_resource: router
+      subnet_id: 
+        get_resource: subnet
+
+  # One floating ip for the salt-master node
+  master-ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: 
+        get_param: floating-network-id
+
+  # One port for the salt-master node
+  master-port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: 
+        get_resource: net
+
+  # Software configuration script for the salt-master node
+  # Installs salt-master, sets permission on some personality files
+  # and uses git to clone any provided state/formula repos
+  config-salt-master:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: public_key
+        - name: state_repos
+      config: |
+        #!/bin/bash
+        chmod 0700 /root/.ssh/coms_rsa
+
+        # Add coms from minions to master
+        echo "$public_key" >> /root/.ssh/authorized_keys
+
+        # Install git
+        apt-get install -y git
+            
+        # Install salt master
+        echo "Install Salt Master"
+        curl -L http://bootstrap.saltstack.org | sh -s -- -M -N
+        mkdir /srv/salt
+        echo -e 'file_roots:\n  base:\n    - /srv/salt' >> /etc/salt/master
+
+        # Clone state/formula repos in state root directory
+        cd /srv/salt
+        while read -r line
+        do
+            if [ -n "$line" ]; then
+                git clone $line
+            fi
+        done <<< "$state_repos"
+        # workaround for nested mongodb repo
+        mv hadoop-formula/* .
+        cd /srv/salt/hadoop/files/ && bash generate_keypairs.sh
+        # Finally - Restart salt service
+        service salt-master restart
+
+  # Software configuration for salt minion
+  # Installs salt-minion, sets up authentication from minion to master,
+  # and sets permissions of any personality files.
+  config-salt-minion:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: public_key
+        - name: master
+      config: |
+        #!/bin/bash
+        chmod 0700 /root/.ssh/coms_rsa
+            
+        # Add coms from minions to master
+        echo "$public_key" >> /root/.ssh/authorized_keys
+
+        # Install salt minion
+        curl -L http://bootstrap.saltstack.org | sh -s
+        echo master: $master >> /etc/salt/minion
+
+        service salt-minion restart
+
+        ssh-keyscan -H $master >> /root/.ssh/known_hosts
+
+        echo "Sleeping for 20s"
+        sleep 20
+
+        MASTER_PKI_PATH="/etc/salt/pki/master/minions/"
+        MASTER_PKI_PATH_PRE="/etc/salt/pki/master/minions_pre/"
+        MINION_PKI_PATH="/etc/salt/pki/minion/minion.pub"
+        HOSTNAME=`hostname --fqdn`
+
+        cp $MINION_PKI_PATH /root/minion_key
+
+        scp -i /root/.ssh/coms_rsa /root/minion_key root@$master:/tmp/$HOSTNAME
+
+        ssh -i /root/.ssh/coms_rsa root@$master "mv /tmp/$HOSTNAME $MASTER_PKI_PATH$HOSTNAME; chmod 700 $MASTER_PKI_PATH$HOSTNAME; rm $MASTER_PKI_PATH_PRE$HOSTNAME"
+
+        service salt-minion restart
+        rm /root/minion_key
+        rm /root/.ssh/coms_rsa
+
+  # Software deployment for salt-master. Deploys the salt-master software
+  # configuration.
+  deploy-salt-master:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      input_values:
+        public_key:
+          get_attr:
+            - coms
+            - public_key
+        state_repos: |
+          https://github.com/rcbops/hadoop-formula.git
+      config:
+        get_resource: config-salt-master
+      server:
+        get_resource: master
+
+  # The salt master instance
+  # Should have one floating ip
+  master:
+    type: OS::Nova::Server
+    depends_on: interface
+    properties:
+      key_name:
+        get_param: keyname
+      image: 
+        get_param: image
+      flavor:
+        get_param: flavor
+      name:
+        str_replace:
+          template: salt-hadoop-$stackstr-master
+          params:
+            $stackstr:
+              get_attr:
+                - stack-string
+                - value
+      personality:
+
+        # Private key for ssh'ing into minions
+        /root/.ssh/coms_rsa:
+          get_attr:
+            - coms
+            - private_key
+
+        # The top.sls file for salt states.
+        # Dictates which minions get which formulas
+        /srv/salt/top.sls: |
+          base:
+            'roles:hadoop_master':
+              - match: grain
+              - hostsfile.hostname
+              - hostsfile
+              - java
+              - hadoop
+              - hadoop.snappy
+              - hadoop.hdfs
+              - hadoop.mapred
+            'roles:hadoop_slave':
+              - match: grain
+              - hostsfile.hostname
+              - hostsfile
+              - java
+              - hadoop
+              - hadoop.snappy
+              - hadoop.hdfs
+              - hadoop.mapred
+
+        # The top.sls file for salt pillars.
+        # Dictates which minions get which pillars.
+        /srv/pillar/top.sls: |
+          base:
+            'roles:hadoop_master':
+              - match: grain
+              - app
+            'roles:hadoop_slave':
+              - match: grain
+              - app 
+
+        # The app pillar. Describe interfaces and salt-mine functions.
+        /srv/pillar/app.sls: |
+          mine_functions:
+            network.interfaces: []
+            network.ip_addrs: []
+
+          mine_interval: 60
+
+          hadoop:
+            version: hdp-1.3.0
+          
+      # Get access from the master-port
+      networks:
+        - port:
+            get_resource: master-port
+
+      # Using SoftwareConfigs - This needs to be set to SOFTWARE_CONFIG
+      user_data_format: SOFTWARE_CONFIG
+
+  # Associate the master floating ip to the master port
+  master-floating-ip-ass: 
+    type: OS::Neutron::FloatingIPAssociation
+    properties: 
+      floatingip_id:
+        get_resource: master-ip
+      port_id:
+        get_resource: master-port
+
+  # Each instance in this group will be an instance with salt-minion
+  # installed and will have the salt role of 'hadoop_master'
+  minion-group-hadoop-master:
+    type: OS::Heat::ResourceGroup
+    depends_on: deploy-salt-master
+    properties:
+      count: 1
+      resource_def:
+        type: Salt::Minion
+        properties:
+          flavor:
+            get_param: flavor
+          stack-prefix:
+            str_replace:
+              template: hadoop-$stackstr-master
+              params:
+                $stackstr:
+                  get_attr:
+                    - stack-string
+                    - value
+          private_key:
+            get_attr:
+              - coms
+              - private_key
+          public_key:
+            get_attr:
+              - coms
+              - public_key
+          image:
+            get_param: image
+          network:
+            get_resource: net
+          master:
+            get_attr:
+              - master
+              - first_address
+          minion-config:
+            get_resource: config-salt-minion
+          minion-roles: "hadoop_master"
+
+  minion-group-hadoop-slave:
+    type: OS::Heat::ResourceGroup
+    depends_on: deploy-salt-master
+    properties:
+      count:
+        get_param: datanodes-count
+      resource_def:
+        type: Salt::Minion
+        properties:
+          flavor:
+            get_param: flavor
+          stack-prefix:
+            str_replace:
+              template: hadoop-$stackstr-slave
+              params:
+                $stackstr:
+                  get_attr:
+                    - stack-string
+                    - value
+          private_key:
+            get_attr:
+              - coms
+              - private_key
+          public_key:
+            get_attr:
+              - coms
+              - public_key
+          image:
+            get_param: image
+          network:
+            get_resource: net
+          master:
+            get_attr:
+              - master
+              - first_address
+          minion-config:
+            get_resource: config-salt-minion
+          minion-roles: "hadoop_slave"
+
+  # SoftwareConfig that is to run on master.
+  # Executes a salt state.highstate on all attached minions.
+  config-deploy:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        salt '*' saltutil.refresh_pillar
+        salt '*' mine.update
+        salt '*' state.highstate
+
+  # Deploys the the deploy softwareconfig
+  # All minions should be spun up and running salt-minion
+  # before executing this deployment.
+  deploy:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: config-deploy
+      server:
+        get_resource: master
+    depends_on:
+      - deploy-salt-master
+      - minion-group-hadoop-master
+      - minion-group-hadoop-slave
+
+outputs:
+  master-ip:
+    description: The salt master. SSH here first to get into the other vms.
+    value: 
+      get_attr:
+        - master-ip
+        - floating_ip_address
+
+  minion-hadoop-master-ip:
+    value:
+      get_attr:
+        - minion-group-hadoop-master
+        - minion-ip
+  
+  minion-hadoop-slave-ips:
+    value:
+      get_attr:
+        - minion-group-hadoop-slave
+        - minion-ip
+
+  master-stdout:
+    value:
+      get_attr:
+       - deploy-salt-master
+       - deploy_stdout
+  
+  master-stderr:
+    value:
+      get_attr:
+        - deploy-salt-master
+        - deploy_stderr
+
+  minion-stdout:
+    value:
+      get_attr:
+        - minion-group-hadoop-master
+        - minion-stdout
+        
+  minion-stderr:
+    value:
+      get_attr:
+        - minion-group-hadoop-master
+        - minion-stderr
+
+  minion-stdout:
+    value:
+      get_attr:
+        - minion-group-hadoop-slave
+        - minion-stdout
+
+  minion-stderr:
+    value:
+      get_attr:
+        - minion-group-hadoop-slave
+        - minion-stderr
