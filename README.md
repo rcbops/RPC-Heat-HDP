@@ -8,7 +8,7 @@ YARN may be added in the future.
 
 This template uses [hadoop salt-formulas](https://github.com/rcbops/hadoop-formula) 
 to configure the servers. It deploys a salt-master, and a number of salt-minions. 
-One minion will be the Hadoop master node. Rest of the minion will be Hadoop data 
+One minion will be the Hadoop master node. Rest of the minions will be Hadoop data 
 nodes. The number of data nodes can be specified during the stack creation. 
 
 For access to nodes in the Hadoop cluster, a floating ip will be assigned to the 
