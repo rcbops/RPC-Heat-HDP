@@ -1,1 +1,1 @@
-Replace me in _includes/architecture.md
+We chose to use Hadoop 1.3 in this architecture becaues of its ubiquity across the Enterpise. Any existing workload could be ported to this deployment. Every Big Data application uses different add-on services specific to their cases. But HDFS and Map Reduce are core to all Big Data applications. For these reasons, this template focuses on providing reliable, scalable, and automated HDFS and Map Reduce.

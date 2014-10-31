@@ -1,1 +1,1 @@
-Replace me in _includes/about.md
+Apache Hadoop provides a framework for distributed processing of large data sets across clusters of computers using simple programming models, and can scale from single servers to thousands, with each server providing local computation and storage to the overall cluster.
