@@ -6,6 +6,14 @@ description: |
   Rest of the minions will be hadoop data nodes.
   Floating ip will be assigned to the salt-master.
 
+parameter_groups:
+- parameters:
+  - keyname
+  - image
+  - floating-network-id
+  - datanodes-count
+  - flavor
+
 parameters:
 
   keyname:

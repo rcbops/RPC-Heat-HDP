@@ -1,5 +1,6 @@
 name: Hadoop
 release: 1.0
+logo: assets/logo.png
 
 short_desc: | 
   RPC-Heat-HDP provides a template to deploy Hadoop to a cluster of servers using the Heat orchestration engine available in any Rackspace OpenStack Private Cloud.
@@ -12,15 +13,10 @@ architecture: |
 
   We chose to start with Hortonworks HDP 1.3 in this solution template becaues of its ubiquity across the Enterpise. Any existing workload could be ported to this deployment. Every Big Data application uses different add-on services specific to their cases. But HDFS and Map Reduce are core to all Big Data applications. For these reasons, this template focuses on providing reliable, scalable, and automated HDFS and Map Reduce.
 
-design_specs: |
+design_specs:
 - The template sets up a Hadoop master with Name Node and Job Tracker services with a configurable amount of Hadoop workers, each having a Data Node and Task Tracker.
 - Any change in configuration values or adding new Worker Nodes can be managed through SaltStack for ease of administration.
 - The templates use HortonWorks HDP 1.3, but they can be easily modified to install either Apache Hadoop or Cloudera CDH.
 
-questions:
-- keyname: Choose an SSH keypair for access to the Salt Master.
-- image: Choose an image every instance in the stack will use..
-- floating-network-id: Choose an external network.
-- datanodes-count: Choose the number of data nodes in the Hadoop cluster.
-- flavor: Choose the flavor every instance in the stack will use..
-
+heat_template: hadoop_stack.yaml
+env_file: env.yaml
