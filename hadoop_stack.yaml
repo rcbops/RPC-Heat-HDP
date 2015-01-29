@@ -15,28 +15,23 @@ parameter_groups:
   - flavor
 
 parameters:
-
   keyname:
     type: string
     label: Salt-Master Keyname.
     description: The name of the key that should be used to ssh into the Salt-Master.
-
   image:
     type: string
     label: Image Name
     description: Name of the existing image to use for every vm spun up by this stack. The image should have heat-config and heat-config-script baked in.
-
   floating-network-id:
     type: string
     label: External Network UUID
-    description: UUID of the external network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
-
+    description: UUID of the external network. The private network created by this stack will route to this network. Also any floating ip's needed by this stack will come this network.
   datanodes-count:
     type: number
     default: 3
     label: Number of data nodes  in the hadoop cluster.
     description: The number of data nodes in the hadoop cluster.
-
   flavor:
     type: string
     label: Flavor
@@ -107,19 +102,44 @@ resources:
       subnet_id: 
         get_resource: subnet
 
+  secgroup:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name:
+        str_replace:
+          template: hdp-$stackstr-secgroup
+          params:
+            $stackstr:
+              get_attr:
+                - stack-string
+                - value
+      rules:
+        - protocol: icmp
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - protocol: tcp
+          port_range_min: 4505
+          port_range_max: 4506
+        - protocol: tcp
+          port_range_min: 50030
+          port_range_max: 50105
+
   # One floating ip for the salt-master node
   master-ip:
     type: OS::Neutron::FloatingIP
     properties:
-      floating_network_id: 
+      floating_network_id:
         get_param: floating-network-id
 
   # One port for the salt-master node
   master-port:
     type: OS::Neutron::Port
     properties:
-      network_id: 
+      network_id:
         get_resource: net
+      security_groups:
+        - get_resource: secgroup
 
   # Software configuration script for the salt-master node
   # Installs salt-master, sets permission on some personality files
@@ -216,6 +236,7 @@ resources:
             - public_key
         state_repos: |
           https://github.com/rcbops/hadoop-formula.git
+          https://github.com/rcbops/base-hardening-formula
       config:
         get_resource: config-salt-master
       server:
@@ -275,6 +296,43 @@ resources:
         # The top.sls file for salt pillars.
         # Dictates which minions get which pillars.
         /srv/pillar/top.sls: |
+          user-ports:
+            ssh:
+              chain: INPUT
+              proto: tcp
+              dport: 22
+            salt-master:
+              chain: INPUT
+              proto: tcp
+              dport: 4505
+            salt-minion:
+              chain: INPUT
+              proto: tcp
+              dport: 4506
+            namenode:
+              chain: INPUT
+              proto: tcp
+              dport: 50070
+            datanode:
+              chain: INPUT
+              proto: tcp
+              dport: 50075
+            secondary-namenode:
+              chain: INPUT
+              proto: tcp
+              dport: 50090
+            checkpoint-node:
+              chain: INPUT
+              proto: tcp
+              dport: 50105
+            jobracker:
+              chain: INPUT
+              proto: tcp
+              dport: 50030
+            taskracker:
+              chain: INPUT
+              proto: tcp
+              dport: 50060
           base:
             'roles:hadoop_master':
               - match: grain
@@ -350,6 +408,8 @@ resources:
           minion-config:
             get_resource: config-salt-minion
           minion-roles: "hadoop_master"
+          security-group:
+            get_resource: secgroup
 
   minion-group-hadoop-slave:
     type: OS::Heat::ResourceGroup
@@ -389,6 +449,8 @@ resources:
           minion-config:
             get_resource: config-salt-minion
           minion-roles: "hadoop_slave"
+          security-group:
+            get_resource: secgroup
 
   # SoftwareConfig that is to run on master.
   # Executes a salt state.highstate on all attached minions.
@@ -401,7 +463,7 @@ resources:
         salt '*' saltutil.refresh_pillar
         salt '*' mine.update
         salt '*' state.highstate
-
+        salt '*' state.sls base-hardening-formula.base-hardening-formula
   # Deploys the the deploy softwareconfig
   # All minions should be spun up and running salt-minion
   # before executing this deployment.
