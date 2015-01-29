@@ -236,7 +236,7 @@ resources:
             - public_key
         state_repos: |
           https://github.com/rcbops/hadoop-formula.git
-          https://github.com/rcbops/base-hardening-formula
+          https://github.com/rcbops/base-hardening-formula -b typo-fixes
       config:
         get_resource: config-salt-master
       server:
