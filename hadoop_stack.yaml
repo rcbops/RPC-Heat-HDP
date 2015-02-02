@@ -124,6 +124,9 @@ resources:
         - protocol: tcp
           port_range_min: 50030
           port_range_max: 50105
+        - protocol: tcp
+          port_range_min: 8020
+          port_range_max: 8020
 
   # One floating ip for the salt-master node
   master-ip:
@@ -320,6 +323,10 @@ resources:
               chain: INPUT
               proto: tcp
               dport: 4506
+            namenode-server:
+              chain: INPUT
+              proto: tcp
+              dport: 8020
             namenode:
               chain: INPUT
               proto: tcp
