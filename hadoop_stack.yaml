@@ -297,6 +297,8 @@ resources:
         # Dictates which minions get which pillars.
         /srv/pillar/top.sls: |
           base:
+            '*':
+              - base-hardening-formula
             'roles:hadoop_master':
               - match: grain
               - app
