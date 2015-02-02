@@ -236,7 +236,7 @@ resources:
             - public_key
         state_repos: |
           https://github.com/rcbops/hadoop-formula.git
-          https://github.com/rcbops/base-hardening-formula -b typo-fixes
+          https://github.com/rcbops/base-hardening-formula
       config:
         get_resource: config-salt-master
       server:
@@ -296,6 +296,15 @@ resources:
         # The top.sls file for salt pillars.
         # Dictates which minions get which pillars.
         /srv/pillar/top.sls: |
+          base:
+            'roles:hadoop_master':
+              - match: grain
+              - app
+            'roles:hadoop_slave':
+              - match: grain
+              - app
+
+        /srv/pillar/base-hardening-formula.sls: |
           user-ports:
             ssh:
               chain: INPUT
@@ -333,13 +342,6 @@ resources:
               chain: INPUT
               proto: tcp
               dport: 50060
-          base:
-            'roles:hadoop_master':
-              - match: grain
-              - app
-            'roles:hadoop_slave':
-              - match: grain
-              - app 
 
         # The app pillar. Describe interfaces and salt-mine functions.
         /srv/pillar/app.sls: |
@@ -460,10 +462,19 @@ resources:
       group: script
       config: |
         #!/bin/bash
+        set -ex
+        logdir=/var/log/heat-deployments
+        prefix=${logdir}/config-deploy
+        mkdir -p $logdir
+        exec &> >(tee -a ${prefix}.log)
+        [ -e ${prefix}.ran ] && exit 0
         salt '*' saltutil.refresh_pillar
         salt '*' mine.update
+        salt '*' saltutil.sync_all
         salt '*' state.highstate
-        salt '*' state.sls base-hardening-formula.base-hardening-formula
+        salt -t 90 -l debug '*' state.sls base-hardening-formula.base-hardening-formula
+        touch ${prefix}.ran
+
   # Deploys the the deploy softwareconfig
   # All minions should be spun up and running salt-minion
   # before executing this deployment.
