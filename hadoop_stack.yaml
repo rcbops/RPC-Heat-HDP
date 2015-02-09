@@ -122,11 +122,38 @@ resources:
           port_range_min: 4505
           port_range_max: 4506
         - protocol: tcp
+          port_range_min: 50010
+          port_range_max: 50010
+        - protocol: tcp
+          port_range_min: 50020
+          port_range_max: 50020
+        - protocol: tcp
           port_range_min: 50030
+          port_range_max: 50030
+        - protocol: tcp
+          port_range_min: 50010
+          port_range_max: 50010
+        - protocol: tcp
+          port_range_min: 50060
+          port_range_max: 50060
+        - protocol: tcp
+          port_range_min: 50070
+          port_range_max: 50070
+        - protocol: tcp
+          port_range_min: 50075
+          port_range_max: 50075
+        - protocol: tcp
+          port_range_min: 50090
+          port_range_max: 50090
+        - protocol: tcp
+          port_range_min: 50105
           port_range_max: 50105
         - protocol: tcp
           port_range_min: 8020
           port_range_max: 8020
+        - protocol: tcp
+          port_range_min: 9001
+          port_range_max: 9001
 
   # One floating ip for the salt-master node
   master-ip:
@@ -323,18 +350,26 @@ resources:
               chain: INPUT
               proto: tcp
               dport: 4506
-            namenode-server:
-              chain: INPUT
-              proto: tcp
-              dport: 8020
-            namenode:
+            namenode_http:
               chain: INPUT
               proto: tcp
               dport: 50070
-            datanode:
+            namenode_ipc:
+              chain: INPUT
+              proto: tcp
+              dport: 8020
+            datanode_http:
               chain: INPUT
               proto: tcp
               dport: 50075
+            datanode-dt:
+              chain: INPUT
+              proto: tcp
+              dport: 50010
+            datanode-ipc:
+              chain: INPUT
+              proto: tcp
+              dport: 50020
             secondary-namenode:
               chain: INPUT
               proto: tcp
@@ -343,11 +378,15 @@ resources:
               chain: INPUT
               proto: tcp
               dport: 50105
-            jobracker:
+            jobtracker:
               chain: INPUT
               proto: tcp
               dport: 50030
-            taskracker:
+            jobtracker_server:
+              chain: INPUT
+              proto: tcp
+              dport: 9001
+            tasktracker:
               chain: INPUT
               proto: tcp
               dport: 50060
