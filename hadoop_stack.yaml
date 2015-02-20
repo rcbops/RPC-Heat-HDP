@@ -34,8 +34,8 @@ parameters:
   datanodes-count:
     type: number
     default: 3
-    label: Number of data nodes  in the hadoop cluster
-    description: Number of data nodes in the hadoop cluster.
+    label: Number of Data Nodes in Hadoop Cluster
+    description: Number of data nodes to create in the Hadoop cluster.
 
   flavor:
     type: string
