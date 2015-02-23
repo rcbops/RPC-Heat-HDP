@@ -15,7 +15,6 @@ parameter_groups:
   - flavor
 
 parameters:
-
   keyname:
     type: string
     label: Salt-Master Key Name
@@ -107,19 +106,71 @@ resources:
       subnet_id: 
         get_resource: subnet
 
+  secgroup:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name:
+        str_replace:
+          template: hdp-$stackstr-secgroup
+          params:
+            $stackstr:
+              get_attr:
+                - stack-string
+                - value
+      rules:
+        - protocol: icmp
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - protocol: tcp
+          port_range_min: 4505
+          port_range_max: 4506
+        - protocol: tcp
+          port_range_min: 50010
+          port_range_max: 50010
+        - protocol: tcp
+          port_range_min: 50020
+          port_range_max: 50020
+        - protocol: tcp
+          port_range_min: 50030
+          port_range_max: 50030
+        - protocol: tcp
+          port_range_min: 50060
+          port_range_max: 50060
+        - protocol: tcp
+          port_range_min: 50070
+          port_range_max: 50070
+        - protocol: tcp
+          port_range_min: 50075
+          port_range_max: 50075
+        - protocol: tcp
+          port_range_min: 50090
+          port_range_max: 50090
+        - protocol: tcp
+          port_range_min: 50105
+          port_range_max: 50105
+        - protocol: tcp
+          port_range_min: 8020
+          port_range_max: 8020
+        - protocol: tcp
+          port_range_min: 9001
+          port_range_max: 9001
+
   # One floating ip for the salt-master node
   master-ip:
     type: OS::Neutron::FloatingIP
     properties:
-      floating_network_id: 
+      floating_network_id:
         get_param: floating-network-id
 
   # One port for the salt-master node
   master-port:
     type: OS::Neutron::Port
     properties:
-      network_id: 
+      network_id:
         get_resource: net
+      security_groups:
+        - get_resource: secgroup
 
   # Software configuration script for the salt-master node
   # Installs salt-master, sets permission on some personality files
@@ -216,6 +267,7 @@ resources:
             - public_key
         state_repos: |
           https://github.com/rcbops/hadoop-formula.git
+          https://github.com/rcbops/base-hardening-formula
       config:
         get_resource: config-salt-master
       server:
@@ -276,12 +328,70 @@ resources:
         # Dictates which minions get which pillars.
         /srv/pillar/top.sls: |
           base:
+            '*':
+              - base-hardening-formula
             'roles:hadoop_master':
               - match: grain
               - app
             'roles:hadoop_slave':
               - match: grain
-              - app 
+              - app
+
+        /srv/pillar/base-hardening-formula.sls: |
+          user-ports:
+            ssh:
+              chain: INPUT
+              proto: tcp
+              dport: 22
+            salt-master:
+              chain: INPUT
+              proto: tcp
+              dport: 4505
+            salt-minion:
+              chain: INPUT
+              proto: tcp
+              dport: 4506
+            namenode_http:
+              chain: INPUT
+              proto: tcp
+              dport: 50070
+            namenode_ipc:
+              chain: INPUT
+              proto: tcp
+              dport: 8020
+            datanode_http:
+              chain: INPUT
+              proto: tcp
+              dport: 50075
+            datanode-dt:
+              chain: INPUT
+              proto: tcp
+              dport: 50010
+            datanode-ipc:
+              chain: INPUT
+              proto: tcp
+              dport: 50020
+            secondary-namenode:
+              chain: INPUT
+              proto: tcp
+              dport: 50090
+            checkpoint-node:
+              chain: INPUT
+              proto: tcp
+              dport: 50105
+            jobtracker:
+              chain: INPUT
+              proto: tcp
+              dport: 50030
+            jobtracker_server:
+              chain: INPUT
+              proto: tcp
+              dport: 9001
+            tasktracker:
+              chain: INPUT
+              proto: tcp
+              source: 127.0.0.1
+              dport: 1025:65535
 
         # The app pillar. Describe interfaces and salt-mine functions.
         /srv/pillar/app.sls: |
@@ -350,6 +460,8 @@ resources:
           minion-config:
             get_resource: config-salt-minion
           minion-roles: "hadoop_master"
+          security-group:
+            get_resource: secgroup
 
   minion-group-hadoop-slave:
     type: OS::Heat::ResourceGroup
@@ -389,6 +501,8 @@ resources:
           minion-config:
             get_resource: config-salt-minion
           minion-roles: "hadoop_slave"
+          security-group:
+            get_resource: secgroup
 
   # SoftwareConfig that is to run on master.
   # Executes a salt state.highstate on all attached minions.
@@ -398,9 +512,18 @@ resources:
       group: script
       config: |
         #!/bin/bash
+        set -ex
+        logdir=/var/log/heat-deployments
+        prefix=${logdir}/config-deploy
+        mkdir -p $logdir
+        exec &> >(tee -a ${prefix}.log)
+        [ -e ${prefix}.ran ] && exit 0
         salt '*' saltutil.refresh_pillar
         salt '*' mine.update
+        salt '*' saltutil.sync_all
         salt '*' state.highstate
+        salt -t 90 -l debug '*' state.sls base-hardening-formula.base-hardening-formula
+        touch ${prefix}.ran
 
   # Deploys the the deploy softwareconfig
   # All minions should be spun up and running salt-minion
