@@ -131,9 +131,6 @@ resources:
           port_range_min: 50030
           port_range_max: 50030
         - protocol: tcp
-          port_range_min: 50010
-          port_range_max: 50010
-        - protocol: tcp
           port_range_min: 50060
           port_range_max: 50060
         - protocol: tcp
@@ -389,7 +386,8 @@ resources:
             tasktracker:
               chain: INPUT
               proto: tcp
-              dport: 50060
+              source: 127.0.0.1
+              dport: 1025:65535
 
         # The app pillar. Describe interfaces and salt-mine functions.
         /srv/pillar/app.sls: |
