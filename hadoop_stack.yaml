@@ -387,11 +387,15 @@ resources:
               chain: INPUT
               proto: tcp
               dport: 9001
-            tasktracker:
+            tasktracker_local:
               chain: INPUT
               proto: tcp
               source: 127.0.0.1
               dport: 1025:65535
+            tasktracker:
+              chain: INPUT
+              proto: tcp
+              dport: 50060
 
         # The app pillar. Describe interfaces and salt-mine functions.
         /srv/pillar/app.sls: |
