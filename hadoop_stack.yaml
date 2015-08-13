@@ -194,7 +194,9 @@ resources:
             
         # Install salt master
         echo "Install Salt Master"
-        curl -L http://bootstrap.saltstack.org | sh -s -- -M -N
+        add-apt-repository ppa:saltstack/salt
+        apt-get update
+        apt-get install -y git salt-master
         mkdir /srv/salt
         echo -e 'file_roots:\n  base:\n    - /srv/salt' >> /etc/salt/master
 
@@ -230,7 +232,9 @@ resources:
         echo "$public_key" >> /root/.ssh/authorized_keys
 
         # Install salt minion
-        curl -L http://bootstrap.saltstack.org | sh -s
+        add-apt-repository ppa:saltstack/salt
+        apt-get update -y
+        apt-get install -y salt-minion
         echo master: $master >> /etc/salt/minion
 
         service salt-minion restart
